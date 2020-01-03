@@ -54,7 +54,7 @@ def bscp(local_filename, remote_host, remote_filename, blocksize, hashname, to_r
         size = f.tell()
         f.seek(0)
 
-        remote_command = 'python -c "%s"' % (remote_script,)
+        remote_command = 'python3 -c "%s"' % (remote_script,)
         command = ('ssh', '--', remote_host, remote_command)
         p = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         
