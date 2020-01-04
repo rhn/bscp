@@ -26,6 +26,9 @@ import struct
 import subprocess
 import sys
 
+from pathlib import Path
+
+
 remote_script = open('remote_script.py').read()
 
 class IOCounter:
@@ -75,9 +78,13 @@ def bscp(local_filename, remote_host, remote_filename, blocksize, hashname, to_r
 
         (remote_size,) = struct.unpack('<Q', io.read(8))
         print('Detected {} bytes'.format(remote_size))
-        if remote_size < size:
-            raise RuntimeError('Remote size less than local (local: %i, remote: %i)' % (size, remote_size))
-        f.truncate(remote_size)
+        if Path(local_filename).is_block_device():
+            if remote_size > size:
+                raise ValueError("Source data can't fit on the local device: {} < {} bytes".format(size, remote_size))
+        else:
+            if remote_size < size:
+                raise ValueError('Destination file already bigger than source device: {} > {} bytes'.format(size, remote_size))
+            f.truncate(remote_size)
         
         # Calculate number of blocks, including the last block which may be smaller
         blockcount = int((remote_size + blocksize - 1) / blocksize)
