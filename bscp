@@ -22,6 +22,7 @@
 """Copies files from a remote device"""
 
 import hashlib
+import os
 import struct
 import subprocess
 import sys
@@ -53,7 +54,7 @@ class IOCounter:
 def bscp(local_filename, remote_host, remote_filename, blocksize, hashname, to_remote=True):
     hash_total = hashlib.new(hashname)
     with open(local_filename, 'rb+') as f:
-        f.seek(0, 2)
+        f.seek(0, os.SEEK_END)
         size = f.tell()
         f.seek(0)
 

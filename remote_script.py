@@ -28,7 +28,7 @@ hash_total = hashlib.new(hashname)
 
 f = open(filename, 'rb')
 try:
-    f.seek(0, 2)
+    f.seek(0, os.SEEK_END)
     readremain = size
     rblocksize = blocksize
     f.seek(0)
