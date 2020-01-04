@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2012-2019
+# Copyright (C) 2012-2020
 #
 # * Volker Diels-Grabsch <v@njh.eu>
 # * art0int <zvn_mail@mail.ru>
@@ -23,6 +23,7 @@
 
 import hashlib
 import os
+import shlex
 import struct
 import subprocess
 import sys
@@ -58,7 +59,7 @@ def bscp(local_filename, remote_host, remote_filename, blocksize, hashname, comp
         size = f.tell()
         f.seek(0)
 
-        remote_command = 'python3 -c "%s"' % (remote_script,)
+        remote_command = 'python3 -c {}'.format(shlex.quote(remote_script))
         command = ('ssh', '-C', '--', remote_host, remote_command)
         p = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
