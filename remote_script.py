@@ -46,6 +46,7 @@ try:
         if sys.stdin.read(4) == 'send':
             sys.stdout.buffer.write(b'b')
             sys.stdout.buffer.write(block)
+            sys.stdout.buffer.write(hash_total.digest())
             sys.stdout.flush()
         readremain -= rblocksize
         if readremain == 0:

@@ -98,13 +98,18 @@ def bscp(local_filename, remote_host, remote_filename, blocksize, hashname, to_r
                 if header != b'b':
                     raise RuntimeError("Not a block: %s" % header)
                 block = io.read(blocksize)
+                hash_total.update(block)
+                remote_total = io.read(hash_total.digest_size)
+                if remote_total != hash_total.digest():
+                    print(i, blockcount)
+                    raise RuntimeError("Total checksum mismatch")
                 f.seek(i * blocksize)
                 f.write(block)
             else:
                 print('.', end='')
                 sys.stdout.flush()
                 io.write(b'done')
-            hash_total.update(block)
+                hash_total.update(block)
         header = io.read(1)
         if header != b't':
             raise RuntimeError("Not a total digest: %s" % header)
