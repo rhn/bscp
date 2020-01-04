@@ -92,7 +92,9 @@ def bscp(local_filename, remote_host, remote_filename, blocksize, hashname, to_r
 
         for i in range(blockcount):
             f.seek(i * blocksize)
-            block = f.read(blocksize)
+            # last read should be smaller if the destination is bigger than the source (block device)
+            read_size = min(remote_size - i * blocksize, blocksize)
+            block = f.read(read_size)
             local_digest = hashlib.new(hashname, block).digest()
             header = io.read(1)
             if header != b'd':
