@@ -26,10 +26,10 @@ import struct
 import sys
 
 (remote_size, blocksize, filename_len, hashname_len) = struct.unpack('<QQQQ', sys.stdin.buffer.read(8+8+8+8))
-filename = sys.stdin.read(filename_len)
-hashname = sys.stdin.read(hashname_len)
+filename = sys.stdin.buffer.read(filename_len)
+hashname = sys.stdin.buffer.read(hashname_len)
 
-sanity_hash = hashlib.new(hashname, filename.encode('utf-8')).digest()
+sanity_hash = hashlib.new(hashname.decode('utf-8'), filename).digest()
 sys.stdout.buffer.write(sanity_hash)
 
 f = open(filename, 'rb')
@@ -42,10 +42,10 @@ sys.stdout.buffer.write(struct.pack('<Q', size))
 
 sys.stdout.flush()
 
-if sys.stdin.read(2) != 'go':
+if sys.stdin.buffer.read(2) != b'go':
     sys.exit()
 
-hash_total = hashlib.new(hashname)
+hash_total = hashlib.new(hashname.decode('utf-8'))
 
 f = open(filename, 'rb')
 try:
@@ -60,11 +60,11 @@ try:
         if len(block) != rblocksize:
             break
         hash_total.update(block)
-        digest = hashlib.new(hashname, block).digest()
+        digest = hashlib.new(hashname.decode('utf-8'), block).digest()
         sys.stdout.buffer.write(b'd')
         sys.stdout.buffer.write(digest)
         sys.stdout.flush()
-        if sys.stdin.read(4) == 'send':
+        if sys.stdin.buffer.read(4) == b'send':
             sys.stdout.buffer.write(b'b')
             sys.stdout.buffer.write(block)
             sys.stdout.buffer.write(hash_total.digest())
