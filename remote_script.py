@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2012-220
+# Copyright (C) 2012-2020
 #
 # * Volker Diels-Grabsch <v@njh.eu>
 # * art0int <zvn_mail@mail.ru>
