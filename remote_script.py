@@ -27,9 +27,9 @@ import sys
 
 (remote_size, blocksize, filename_len, hashname_len) = struct.unpack('<QQQQ', sys.stdin.buffer.read(8+8+8+8))
 filename = sys.stdin.buffer.read(filename_len)
-hashname = sys.stdin.buffer.read(hashname_len)
+hashname = sys.stdin.buffer.read(hashname_len).decode('utf-8')
 
-sanity_hash = hashlib.new(hashname.decode('utf-8'), filename).digest()
+sanity_hash = hashlib.new(hashname, filename).digest()
 sys.stdout.buffer.write(sanity_hash)
 
 f = open(filename, 'rb')
@@ -45,7 +45,7 @@ sys.stdout.flush()
 if sys.stdin.buffer.read(2) != b'go':
     sys.exit()
 
-hash_total = hashlib.new(hashname.decode('utf-8'))
+hash_total = hashlib.new(hashname)
 
 f = open(filename, 'rb')
 try:
@@ -60,7 +60,7 @@ try:
         if len(block) != rblocksize:
             break
         hash_total.update(block)
-        digest = hashlib.new(hashname.decode('utf-8'), block).digest()
+        digest = hashlib.new(hashname, block).digest()
         sys.stdout.buffer.write(b'd')
         sys.stdout.buffer.write(digest)
         sys.stdout.flush()
