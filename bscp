@@ -131,22 +131,18 @@ def bscp(local_filename, remote_host, remote_filename, blocksize, hashname, to_r
     return (io.in_total, io.out_total, remote_size)
 
 if __name__ == '__main__':
-    try:
-        local_filename = sys.argv[1]
-        (remote_host, remote_filename) = sys.argv[2].split(':')
-        if len(sys.argv) >= 4:
-            blocksize = int(sys.argv[3])
-        else:
-            blocksize = 64 * 1024
-        if len(sys.argv) >= 5:
-            hashname = sys.argv[4]
-        else:
-            hashname = 'sha1'
-        assert len(sys.argv) <= 5
-    except:
-        usage = 'bscp DEST HOST:SRC [BLOCKSIZE] [HASH]'
-        sys.stderr.write('Usage:\n\n    %s\n\n' % (usage,))
-        sys.exit(1)
-    (in_total, out_total, size) = bscp(local_filename, remote_host, remote_filename, blocksize, hashname)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--hash_name', choices=['sha1'], default='sha1',
+                        help='Hash function name')
+    parser.add_argument('--block_size', '-b', type=int, default=64*1024,
+                        help='Block size')
+    parser.add_argument('src', help='Source block device (remote)')
+    parser.add_argument('dest', help='Destination file (local)')
+    args = parser.parse_args()
+
+    (remote_host, remote_filename) = args.src.split(':')
+
+    (in_total, out_total, size) = bscp(args.dest, remote_host, remote_filename, args.block_size, args.hash_name)
     speedup = size * 1.0 / (in_total + out_total)
     sys.stderr.write('\nin=%i out=%i size=%i speedup=%.2f\n' % (in_total, out_total, size, speedup))
