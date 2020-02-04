@@ -33,6 +33,11 @@ from pathlib import Path
 
 remote_script = open('remote_script.py').read()
 
+class TransferError(RuntimeError):
+    def __init__(self, block_no, msg):
+        RuntimeError.__init__(self, msg)
+        self.block_no = block_no
+
 class IOCounter:
     def __init__(self, in_stream, out_stream):
         self.in_stream = in_stream
@@ -54,6 +59,12 @@ class IOCounter:
         self.out_total += len(s)
         self.out_stream.flush()
 
+'''
+def bscp_retry(*args, offset_blocks=0, **kwargs):
+    for i in range(3):
+        try:
+            bscp(*args, offset_blocks=**kwargs, 
+'''
 
 def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, hashname, compress=False, offset_blocks=0):
     hash_total = hashlib.new(hashname)
@@ -83,8 +94,16 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
         io.write(bremote_filename)
         io.write(bhashname)
 
+        def read_check(io, block, size):
+            data, complete = io.read_all(size)
+            if not complete:
+                raise TransferError(block, "Short read")
+            return data
+
         sanity_digest = hashlib.new(hashname, bremote_filename).digest()
-        remote_digest = io.read(len(sanity_digest))
+        
+        
+        remote_digest = read_check(io, 0, len(sanity_digest))
         if remote_digest != sanity_digest:
             raise RuntimeError('Remote script failed to execute properly')
             
@@ -110,22 +129,20 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
             block = f.read(read_size)
             block_hash = hashlib.new(hashname, block)
             local_digest = block_hash.digest()
-            header = io.read(1)
+            header = read_check(io, i, 1)
             if header != b'd':
-                raise RuntimeError("Not a digest: {!r}".format(header))
-            remote_digest = io.read(block_hash.digest_size)
+                raise RuntimeError(i, "Not a digest: {!r}".format(header))
+            remote_digest = read_check(io, i, block_hash.digest_size)
             if remote_digest != local_digest:
                 print('X', end='')
                 sys.stdout.flush()
                 io.write(b'send')
-                header = io.read(1)
+                header = read_check(io, i, 1)
                 if header != b'b':
                     raise RuntimeError("Not a block: %s" % header)
-                block, full = io.read_all(read_size)
-                if not full:
-                    raise RuntimeError("Incomplete read")
+                block = read_check(io, i, read_size)
                 hash_total.update(block)
-                remote_total = io.read(hash_total.digest_size)
+                remote_total = read_check(io, i, hash_total.digest_size)
                 if remote_total != hash_total.digest():
                     raise RuntimeError("Total checksum mismatch")
                 f.seek(i * blocksize)
