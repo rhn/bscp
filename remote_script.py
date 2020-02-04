@@ -25,7 +25,7 @@ import os.path
 import struct
 import sys
 
-(remote_size, blocksize, filename_len, hashname_len) = struct.unpack('<QQQQ', sys.stdin.buffer.read(8+8+8+8))
+(remote_size, blocksize, offset_blocks, filename_len, hashname_len) = struct.unpack('<QQQQQ', sys.stdin.buffer.read(8+8+8+8+8))
 filename = sys.stdin.buffer.read(filename_len)
 hashname = sys.stdin.buffer.read(hashname_len).decode('utf-8')
 
@@ -50,9 +50,9 @@ hash_total = hashlib.new(hashname)
 f = open(filename, 'rb')
 try:
     f.seek(0, os.SEEK_END)
-    readremain = size
+    readremain = size - offset_blocks * blocksize
     rblocksize = blocksize
-    f.seek(0)
+    f.seek(offset_blocks * blocksize)
     while True:
         if readremain <= blocksize:
             rblocksize = readremain

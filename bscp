@@ -55,12 +55,12 @@ class IOCounter:
         self.out_stream.flush()
 
 
-def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, hashname, compress=False):
+def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, hashname, compress=False, offset_blocks=0):
     hash_total = hashlib.new(hashname)
     with open(local_filename, 'rb+') as f:
         f.seek(0, os.SEEK_END)
         size = f.tell()
-        f.seek(0)
+        f.seek(offset_blocks*blocksize)
 
         remote_command = 'python3 -c {}'.format(shlex.quote(remote_script))
         command = ('ssh',
@@ -73,7 +73,13 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
         bhashname = hashname.encode('utf-8')
         io = IOCounter(p.stdout, p.stdin)
 
-        io.write(struct.pack('<QQQQ', size, blocksize, len(bremote_filename), len(bhashname)))
+        io.write(struct.pack('<QQQQQ',
+            size,
+            blocksize,
+            offset_blocks,
+            len(bremote_filename),
+            len(bhashname),
+        ))
         io.write(bremote_filename)
         io.write(bhashname)
 
@@ -97,7 +103,7 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
         # Calculate number of blocks, including the last block which may be smaller
         blockcount = int((remote_size + blocksize - 1) / blocksize)
 
-        for i in range(blockcount):
+        for i in range(offset_blocks, blockcount):
             f.seek(i * blocksize)
             # last read should be smaller if the destination is bigger than the source (block device)
             read_size = min(remote_size - i * blocksize, blocksize)
@@ -148,6 +154,8 @@ if __name__ == '__main__':
                         help='Hash function name')
     parser.add_argument('--block_size', '-b', type=int, default=64*1024,
                         help='Block size (bytes)')
+    parser.add_argument('--block_offset', '-o', type=int, default=0,
+                        help='Offset in blocks')
     parser.add_argument('--compress', '-c', action='store_true')
     parser.add_argument('--port', '-p', type=int, default=22)
     parser.add_argument('src', help='Source block device (remote)')
@@ -156,6 +164,12 @@ if __name__ == '__main__':
 
     (remote_host, remote_filename) = args.src.split(':')
 
-    (in_total, out_total, size) = bscp(args.dest, remote_host, args.port, remote_filename, args.block_size, args.hash_name, compress=args.compress)
+    (in_total, out_total, size) = bscp(
+        args.dest, remote_host, args.port,
+        remote_filename,
+        args.block_size,
+        args.hash_name,
+        compress=args.compress,
+        offset_blocks=args.block_offset)
     speedup = size * 1.0 / (in_total + out_total)
     sys.stderr.write('\nin=%i out=%i size=%i speedup=%.2f\n' % (in_total, out_total, size, speedup))
