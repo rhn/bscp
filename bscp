@@ -59,12 +59,6 @@ class IOCounter:
         self.out_total += len(s)
         self.out_stream.flush()
 
-'''
-def bscp_retry(*args, offset_blocks=0, **kwargs):
-    for i in range(3):
-        try:
-            bscp(*args, offset_blocks=**kwargs, 
-'''
 
 def read_check(io, block, size):
     data, complete = io.read_all(size)
@@ -81,7 +75,6 @@ def prepare(f, io, size, is_block, sanity_digest):
     io.write(b'go')
 
     (remote_size,) = struct.unpack('<Q', io.read(8))
-    print('Detected {} bytes'.format(remote_size))
     if is_block:
         if remote_size > size:
             raise ValueError("Source data can't fit on the local device: {} < {} bytes".format(size, remote_size))
@@ -131,6 +124,25 @@ def transfer(f, io, size, remote_size, blocksize, offset_blocks, hash_total, has
     remote_digest_total = io.read()
     if remote_digest_total != hash_total.digest():
         raise RuntimeError('Checksum mismatch after transfer')
+
+
+def bscp_retry(*args, offset_blocks=0, **kwargs):
+    in_total = 0
+    out_total = 0
+    remote_size = None
+    for i in range(3):
+        try:
+            in_bytes, out_bytes, remote_size_again, offset_blocks = bscp(*args, offset_blocks=offset_blocks, **kwargs)
+            in_total += in_bytes
+            out_total += out_bytes
+            remote_size = remote_size if remote_size_again is None else remote_size_again
+            if offset_blocks is None:
+                break
+        except TransferError as e:
+            sys.stderr.write("Connection broken\n")
+            offset_blocks = e.block_no
+    return in_total, out_total, remote_size, offset_blocks
+
 
 def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, hashname, compress=False, offset_blocks=0):
     hash_total = hashlib.new(hashname)
@@ -196,7 +208,7 @@ if __name__ == '__main__':
 
     (remote_host, remote_filename) = args.src.split(':')
 
-    (in_total, out_total, size, next_block) = bscp(
+    (in_total, out_total, size, next_block) = bscp_retry(
         args.dest, remote_host, args.port,
         remote_filename,
         args.block_size,
