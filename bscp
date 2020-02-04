@@ -66,43 +66,14 @@ def bscp_retry(*args, offset_blocks=0, **kwargs):
             bscp(*args, offset_blocks=**kwargs, 
 '''
 
-def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, hashname, compress=False, offset_blocks=0):
-    hash_total = hashlib.new(hashname)
-    with open(local_filename, 'rb+') as f:
-        f.seek(0, os.SEEK_END)
-        size = f.tell()
-        f.seek(offset_blocks*blocksize)
+def read_check(io, block, size):
+    data, complete = io.read_all(size)
+    if not complete:
+        raise TransferError(block, "Short read")
+    return data
 
-        remote_command = 'python3 -c {}'.format(shlex.quote(remote_script))
-        command = ('ssh',
-                   '-C',
-                   '-p', str(remote_port),
-                   '--', remote_host, remote_command)
-        p = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
-        bremote_filename = remote_filename.encode('utf-8')
-        bhashname = hashname.encode('utf-8')
-        io = IOCounter(p.stdout, p.stdin)
-
-        io.write(struct.pack('<QQQQQ',
-            size,
-            blocksize,
-            offset_blocks,
-            len(bremote_filename),
-            len(bhashname),
-        ))
-        io.write(bremote_filename)
-        io.write(bhashname)
-
-        def read_check(io, block, size):
-            data, complete = io.read_all(size)
-            if not complete:
-                raise TransferError(block, "Short read")
-            return data
-
-        sanity_digest = hashlib.new(hashname, bremote_filename).digest()
-        
-        
+def prepare(f, io, size, is_block, sanity_digest):
         remote_digest = read_check(io, 0, len(sanity_digest))
         if remote_digest != sanity_digest:
             raise RuntimeError('Remote script failed to execute properly')
@@ -111,14 +82,16 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
 
         (remote_size,) = struct.unpack('<Q', io.read(8))
         print('Detected {} bytes'.format(remote_size))
-        if Path(local_filename).is_block_device():
+        if is_block:
             if remote_size > size:
                 raise ValueError("Source data can't fit on the local device: {} < {} bytes".format(size, remote_size))
         else:
             if remote_size < size:
                 raise ValueError('Destination file already bigger than source device: {} > {} bytes'.format(size, remote_size))
             f.truncate(remote_size)
-        
+        return remote_size
+
+def transfer(f, io, size, remote_size, blocksize, offset_blocks, hash_total, hashname):  
         # Calculate number of blocks, including the last block which may be smaller
         blockcount = int((remote_size + blocksize - 1) / blocksize)
 
@@ -156,13 +129,55 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
         if header != b't':
             raise RuntimeError("Not a total digest: %s" % header)
         remote_digest_total = io.read()
-        p.stdin.close()
-        code = p.wait()
         if remote_digest_total != hash_total.digest():
             raise RuntimeError('Checksum mismatch after transfer')
-        if code != 0:
-            raise RuntimeError("Remote connection didn't complete")
-    return (io.in_total, io.out_total, remote_size)
+
+def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, hashname, compress=False, offset_blocks=0):
+    hash_total = hashlib.new(hashname)
+    with open(local_filename, 'rb+') as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(offset_blocks*blocksize)
+
+        is_block = Path(local_filename).is_block_device()
+
+        remote_command = 'python3 -c {}'.format(shlex.quote(remote_script))
+        command = ('ssh',
+                   '-C',
+                   '-p', str(remote_port),
+                   '--', remote_host, remote_command)
+        p = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+        bremote_filename = remote_filename.encode('utf-8')
+        bhashname = hashname.encode('utf-8')
+        io = IOCounter(p.stdout, p.stdin)
+
+        io.write(struct.pack('<QQQQQ',
+            size,
+            blocksize,
+            offset_blocks,
+            len(bremote_filename),
+            len(bhashname),
+        ))
+        io.write(bremote_filename)
+        io.write(bhashname)
+
+        sanity_digest = hashlib.new(hashname, bremote_filename).digest()
+
+        remote_size = None
+        try:
+            remote_size = prepare(f, io, size, is_block, sanity_digest)
+            transfer(f, io, size, remote_size, blocksize, offset_blocks, hash_total, hashname)
+        except TransferError as e:
+            p.stdin.close()
+            p.wait() # Let the process end
+            return (io.in_total, io.out_total, remote_size, e.block_no)
+        else:
+            p.stdin.close()
+            code = p.wait()
+            if code != 0:
+                raise RuntimeError("Remote connection didn't complete")
+    return (io.in_total, io.out_total, remote_size, None)
 
 if __name__ == '__main__':
     import argparse
@@ -181,12 +196,17 @@ if __name__ == '__main__':
 
     (remote_host, remote_filename) = args.src.split(':')
 
-    (in_total, out_total, size) = bscp(
+    (in_total, out_total, size, next_block) = bscp(
         args.dest, remote_host, args.port,
         remote_filename,
         args.block_size,
         args.hash_name,
         compress=args.compress,
         offset_blocks=args.block_offset)
-    speedup = size * 1.0 / (in_total + out_total)
+    speedup = '?'
+    if size:
+        done_blocks = (next_block - args.block_offset) * args.block_size
+        speedup = done_blocks / (in_total + out_total)
     sys.stderr.write('\nin=%i out=%i size=%i speedup=%.2f\n' % (in_total, out_total, size, speedup))
+    if next_block is not None:
+        sys.stderr.write("Stopped before completing block {}\n".format(next_block))
