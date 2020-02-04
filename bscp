@@ -39,13 +39,16 @@ class IOCounter:
         self.out_stream = out_stream
         self.in_total = 0
         self.out_total = 0
-    def read(self, size=None):
+    def read_all(self, size=None):
+        '''Returns read data, and whether the read was complete'''
         if size is None:
             s = self.in_stream.read()
         else:
             s = self.in_stream.read(size)
         self.in_total += len(s)
-        return s
+        return s, (size is None) or len(s) == size
+    def read(self, size=None):
+        return self.read_all(size)[0]
     def write(self, s):
         self.out_stream.write(s)
         self.out_total += len(s)
@@ -99,11 +102,12 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
             # last read should be smaller if the destination is bigger than the source (block device)
             read_size = min(remote_size - i * blocksize, blocksize)
             block = f.read(read_size)
-            local_digest = hashlib.new(hashname, block).digest()
+            block_hash = hashlib.new(hashname, block)
+            local_digest = block_hash.digest()
             header = io.read(1)
             if header != b'd':
                 raise RuntimeError("Not a digest: {!r}".format(header))
-            remote_digest = io.read(hash_total.digest_size)
+            remote_digest = io.read(block_hash.digest_size)
             if remote_digest != local_digest:
                 print('X', end='')
                 sys.stdout.flush()
@@ -111,11 +115,12 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
                 header = io.read(1)
                 if header != b'b':
                     raise RuntimeError("Not a block: %s" % header)
-                block = io.read(blocksize)
+                block, full = io.read_all(read_size)
+                if not full:
+                    raise RuntimeError("Incomplete read")
                 hash_total.update(block)
                 remote_total = io.read(hash_total.digest_size)
                 if remote_total != hash_total.digest():
-                    print(i, blockcount)
                     raise RuntimeError("Total checksum mismatch")
                 f.seek(i * blocksize)
                 f.write(block)
@@ -129,9 +134,11 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
             raise RuntimeError("Not a total digest: %s" % header)
         remote_digest_total = io.read()
         p.stdin.close()
-        p.wait()
+        code = p.wait()
         if remote_digest_total != hash_total.digest():
             raise RuntimeError('Checksum mismatch after transfer')
+        if code != 0:
+            raise RuntimeError("Remote connection didn't complete")
     return (io.in_total, io.out_total, remote_size)
 
 if __name__ == '__main__':
@@ -140,7 +147,7 @@ if __name__ == '__main__':
     parser.add_argument('--hash_name', choices=['sha1'], default='sha1',
                         help='Hash function name')
     parser.add_argument('--block_size', '-b', type=int, default=64*1024,
-                        help='Block size')
+                        help='Block size (bytes)')
     parser.add_argument('--compress', '-c', action='store_true')
     parser.add_argument('--port', '-p', type=int, default=22)
     parser.add_argument('src', help='Source block device (remote)')
