@@ -217,8 +217,11 @@ if __name__ == '__main__':
         offset_blocks=args.block_offset)
     speedup = '?'
     if size:
-        done_blocks = (next_block - args.block_offset) * args.block_size
-        speedup = done_blocks / (in_total + out_total)
+        if next_block:
+            done_bytes = (next_block - args.block_offset) * args.block_size
+        else:
+            done_bytes = size
+        speedup = done_bytes / (in_total + out_total)
     sys.stderr.write('\nin=%i out=%i size=%i speedup=%.2f\n' % (in_total, out_total, size, speedup))
     if next_block is not None:
         sys.stderr.write("Stopped before completing block {}\n".format(next_block))
