@@ -74,63 +74,63 @@ def read_check(io, block, size):
 
 
 def prepare(f, io, size, is_block, sanity_digest):
-        remote_digest = read_check(io, 0, len(sanity_digest))
-        if remote_digest != sanity_digest:
-            raise RuntimeError('Remote script failed to execute properly')
-            
-        io.write(b'go')
+    remote_digest = read_check(io, 0, len(sanity_digest))
+    if remote_digest != sanity_digest:
+        raise RuntimeError('Remote script failed to execute properly')
+        
+    io.write(b'go')
 
-        (remote_size,) = struct.unpack('<Q', io.read(8))
-        print('Detected {} bytes'.format(remote_size))
-        if is_block:
-            if remote_size > size:
-                raise ValueError("Source data can't fit on the local device: {} < {} bytes".format(size, remote_size))
-        else:
-            if remote_size < size:
-                raise ValueError('Destination file already bigger than source device: {} > {} bytes'.format(size, remote_size))
-            f.truncate(remote_size)
-        return remote_size
+    (remote_size,) = struct.unpack('<Q', io.read(8))
+    print('Detected {} bytes'.format(remote_size))
+    if is_block:
+        if remote_size > size:
+            raise ValueError("Source data can't fit on the local device: {} < {} bytes".format(size, remote_size))
+    else:
+        if remote_size < size:
+            raise ValueError('Destination file already bigger than source device: {} > {} bytes'.format(size, remote_size))
+        f.truncate(remote_size)
+    return remote_size
 
 def transfer(f, io, size, remote_size, blocksize, offset_blocks, hash_total, hashname):  
-        # Calculate number of blocks, including the last block which may be smaller
-        blockcount = int((remote_size + blocksize - 1) / blocksize)
+    # Calculate number of blocks, including the last block which may be smaller
+    blockcount = int((remote_size + blocksize - 1) / blocksize)
 
-        for i in range(offset_blocks, blockcount):
-            f.seek(i * blocksize)
-            # last read should be smaller if the destination is bigger than the source (block device)
-            read_size = min(remote_size - i * blocksize, blocksize)
-            block = f.read(read_size)
-            block_hash = hashlib.new(hashname, block)
-            local_digest = block_hash.digest()
+    for i in range(offset_blocks, blockcount):
+        f.seek(i * blocksize)
+        # last read should be smaller if the destination is bigger than the source (block device)
+        read_size = min(remote_size - i * blocksize, blocksize)
+        block = f.read(read_size)
+        block_hash = hashlib.new(hashname, block)
+        local_digest = block_hash.digest()
+        header = read_check(io, i, 1)
+        if header != b'd':
+            raise RuntimeError(i, "Not a digest: {!r}".format(header))
+        remote_digest = read_check(io, i, block_hash.digest_size)
+        if remote_digest != local_digest:
+            print('X', end='')
+            sys.stdout.flush()
+            io.write(b'send')
             header = read_check(io, i, 1)
-            if header != b'd':
-                raise RuntimeError(i, "Not a digest: {!r}".format(header))
-            remote_digest = read_check(io, i, block_hash.digest_size)
-            if remote_digest != local_digest:
-                print('X', end='')
-                sys.stdout.flush()
-                io.write(b'send')
-                header = read_check(io, i, 1)
-                if header != b'b':
-                    raise RuntimeError("Not a block: %s" % header)
-                block = read_check(io, i, read_size)
-                hash_total.update(block)
-                remote_total = read_check(io, i, hash_total.digest_size)
-                if remote_total != hash_total.digest():
-                    raise RuntimeError("Total checksum mismatch")
-                f.seek(i * blocksize)
-                f.write(block)
-            else:
-                print('.', end='')
-                sys.stdout.flush()
-                io.write(b'done')
-                hash_total.update(block)
-        header = io.read(1)
-        if header != b't':
-            raise RuntimeError("Not a total digest: %s" % header)
-        remote_digest_total = io.read()
-        if remote_digest_total != hash_total.digest():
-            raise RuntimeError('Checksum mismatch after transfer')
+            if header != b'b':
+                raise RuntimeError("Not a block: %s" % header)
+            block = read_check(io, i, read_size)
+            hash_total.update(block)
+            remote_total = read_check(io, i, hash_total.digest_size)
+            if remote_total != hash_total.digest():
+                raise RuntimeError("Total checksum mismatch")
+            f.seek(i * blocksize)
+            f.write(block)
+        else:
+            print('.', end='')
+            sys.stdout.flush()
+            io.write(b'done')
+            hash_total.update(block)
+    header = io.read(1)
+    if header != b't':
+        raise RuntimeError("Not a total digest: %s" % header)
+    remote_digest_total = io.read()
+    if remote_digest_total != hash_total.digest():
+        raise RuntimeError('Checksum mismatch after transfer')
 
 def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, hashname, compress=False, offset_blocks=0):
     hash_total = hashlib.new(hashname)
