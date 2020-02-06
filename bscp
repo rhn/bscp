@@ -60,6 +60,42 @@ class IOCounter:
         self.out_stream.flush()
 
 
+def receive_blocks(in_stream, digest_size):
+    future_digests = []
+    end_digest = None
+    needblocksize = None
+    while True:
+        if needblocksize is not None:
+            header = read_check(in_stream, None, 1)
+            if header == b'd':
+                future_digests.append(read_check(in_stream, None, digest_size))
+            elif header == b'b':
+                yield (header,
+                    read_check(in_stream, None, needblocksize),
+                    read_check(in_stream, None, digest_size))
+                needblocksize = None
+            elif header == b't':
+                end_digest = read_check(in_stream, None, digest_size)
+            else:
+                raise RuntimeError("Not a valid header: {!r}".format(header))
+        elif future_digests:
+            needblocksize = yield b'd', future_digests.pop(0)
+        elif end_digest:
+            yield b't', end_digest
+            return
+        else:
+            header = read_check(in_stream, None, 1)
+            if header == b'd':
+                needblocksize = yield header, read_check(in_stream, None, digest_size)
+            elif header == b't':
+                yield b't', read_check(in_stream, None, digest_size)
+                return
+            elif header == b'b':
+                raise RuntimeError("Unrequested block received")
+            else:
+                raise RuntimeError("Not a valid header: {!r}".format(header))
+
+
 def read_check(io, block, size):
     data, complete = io.read_all(size)
     if not complete:
@@ -88,6 +124,8 @@ def transfer(f, io, size, remote_size, blocksize, offset_blocks, hash_total, has
     # Calculate number of blocks, including the last block which may be smaller
     blockcount = int((remote_size + blocksize - 1) / blocksize)
 
+    receiver = receive_blocks(io, hash_total.digest_size)
+
     for i in range(offset_blocks, blockcount):
         f.seek(i * blocksize)
         # last read should be smaller if the destination is bigger than the source (block device)
@@ -95,33 +133,33 @@ def transfer(f, io, size, remote_size, blocksize, offset_blocks, hash_total, has
         block = f.read(read_size)
         block_hash = hashlib.new(hashname, block)
         local_digest = block_hash.digest()
-        header = read_check(io, i, 1)
-        if header != b'd':
-            raise RuntimeError(i, "Not a digest: {!r}".format(header))
-        remote_digest = read_check(io, i, block_hash.digest_size)
-        if remote_digest != local_digest:
-            print('X', end='')
-            sys.stdout.flush()
-            io.write(b'send')
-            header = read_check(io, i, 1)
-            if header != b'b':
-                raise RuntimeError("Not a block: %s" % header)
-            block = read_check(io, i, read_size)
-            hash_total.update(block)
-            remote_total = read_check(io, i, hash_total.digest_size)
-            if remote_total != hash_total.digest():
-                raise RuntimeError("Total checksum mismatch")
-            f.seek(i * blocksize)
-            f.write(block)
-        else:
-            print('.', end='')
-            sys.stdout.flush()
-            io.write(b'done')
-            hash_total.update(block)
-    header = io.read(1)
+        try:
+            header, remote_digest = receiver.send(None)
+            if header != b'd':
+                raise RuntimeError(i, "Not a digest: {!r}".format(header))
+
+            if remote_digest != local_digest:
+                print('X', end='')
+                sys.stdout.flush()
+                io.write(b'send' + struct.pack('<Q', i))
+                header, block, remote_total = receiver.send(read_size)
+                if header != b'b':
+                    raise RuntimeError("Not a block: %s" % header)
+                hash_total.update(block)
+                if remote_total != hash_total.digest():
+                    raise RuntimeError("Total checksum mismatch")
+                f.seek(i * blocksize)
+                f.write(block)
+            else:
+                print('.', end='')
+                sys.stdout.flush()
+                hash_total.update(block)
+        except TransferError as e:
+            e.block_no = i
+            raise e
+    header, remote_digest_total = receiver.send(None)
     if header != b't':
         raise RuntimeError("Not a total digest: %s" % header)
-    remote_digest_total = io.read()
     if remote_digest_total != hash_total.digest():
         raise RuntimeError('Checksum mismatch after transfer')
 
