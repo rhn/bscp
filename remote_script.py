@@ -36,7 +36,7 @@ sys.stdout.buffer.write(sanity_hash)
 
 f = open(filename, 'rb')
 try:
-    f.seek(0, 2)
+    f.seek(0, os.SEEK_END)
     size = f.tell()
 finally:
     f.close()
@@ -52,17 +52,17 @@ hashes = []
 def send_digests():
     hash_total = hashlib.new(hashname)
     with open(filename, 'rb') as f:
-        f.seek(0, os.SEEK_END)
         readremain = size - offset_blocks * blocksize
         rblocksize = blocksize
-        f.seek(offset_blocks * blocksize)
-        readremain = size
-        rblocksize = blocksize
+        f.seek(offset_blocks * blocksize, os.SEEK_SET)
         while True:
             if readremain <= blocksize:
                 rblocksize = readremain
             block = f.read(rblocksize)
             if len(block) != rblocksize:
+                with send_packet:
+                    sys.stdout.buffer.write(b'x')
+                    sys.stdout.buffer.flush()
                 break # something went wrong
             hash_total.update(block)
             hashes.append(hash_total.digest())
@@ -70,6 +70,7 @@ def send_digests():
             with send_packet:
                 sys.stdout.buffer.write(b'd')
                 sys.stdout.buffer.write(digest)
+                sys.stdout.buffer.flush()
             readremain -= rblocksize
             if readremain == 0:
                 break
