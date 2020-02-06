@@ -27,6 +27,7 @@ import shlex
 import struct
 import subprocess
 import sys
+import time
 
 from pathlib import Path
 
@@ -245,7 +246,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     (remote_host, remote_filename) = args.src.split(':')
-
+    start_time = time.monotonic()
     (in_total, out_total, size, next_block) = bscp_retry(
         args.dest, remote_host, args.port,
         remote_filename,
@@ -253,13 +254,16 @@ if __name__ == '__main__':
         args.hash_name,
         compress=args.compress,
         offset_blocks=args.block_offset)
-    speedup = '?'
+    time_spent = time.monotonic() - start_time
+    reduction = '?'
     if size:
         if next_block:
             done_bytes = (next_block - args.block_offset) * args.block_size
         else:
             done_bytes = size
-        speedup = done_bytes / (in_total + out_total)
-    sys.stderr.write('\nin=%i out=%i size=%i speedup=%.2f\n' % (in_total, out_total, size, speedup))
+        reduction = done_bytes / (in_total + out_total)
+    speed = done_bytes / 1024 / 1024 / time_spent
+    print()
+    print('in={} out={} size={} reduction={:.02f} speed={:.02f} MiB/s'.format(in_total, out_total, size, reduction, speed))
     if next_block is not None:
         sys.stderr.write("Stopped before completing block {}\n".format(next_block))
