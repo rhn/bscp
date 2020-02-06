@@ -92,7 +92,7 @@ def handle_data():
                 with send_packet:
                     sys.stdout.buffer.write(b'b')
                     sys.stdout.buffer.write(block)
-                    sys.stdout.buffer.write(hashes[block_idx])
+                    sys.stdout.buffer.write(hashes[block_idx - offset_blocks])
                 sys.stdout.buffer.flush()
             elif pkt == b'':
                 break

@@ -121,10 +121,10 @@ def prepare(f, io, size, is_block, sanity_digest):
         f.truncate(remote_size)
     return remote_size
 
-def transfer(f, io, size, remote_size, blocksize, offset_blocks, hash_total, hashname):  
+def transfer(f, io, size, remote_size, blocksize, offset_blocks, hashname):  
     # Calculate number of blocks, including the last block which may be smaller
     blockcount = int((remote_size + blocksize - 1) / blocksize)
-
+    hash_total = hashlib.new(hashname)
     receiver = receive_blocks(io, hash_total.digest_size)
 
     for i in range(offset_blocks, blockcount):
@@ -184,7 +184,6 @@ def bscp_retry(*args, offset_blocks=0, **kwargs):
 
 
 def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, hashname, compress=False, offset_blocks=0):
-    hash_total = hashlib.new(hashname)
     with open(local_filename, 'rb+') as f:
         f.seek(0, os.SEEK_END)
         size = f.tell()
@@ -218,7 +217,7 @@ def bscp(local_filename, remote_host, remote_port, remote_filename, blocksize, h
         remote_size = None
         try:
             remote_size = prepare(f, io, size, is_block, sanity_digest)
-            transfer(f, io, size, remote_size, blocksize, offset_blocks, hash_total, hashname)
+            transfer(f, io, size, remote_size, blocksize, offset_blocks, hashname)
         except TransferError as e:
             p.stdin.close()
             p.wait() # Let the process end
